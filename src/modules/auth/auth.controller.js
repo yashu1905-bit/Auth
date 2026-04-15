@@ -1,5 +1,6 @@
 import * as authService from "./auth.service.js";
 import ApiResponse from "../../common/utils/api-response.js";
+import { upload } from "../../common/middleware/multer.middleware.js";
 
 const register = async (req, res) => {
   const user = await authService.register(req.body);
@@ -56,6 +57,22 @@ const getMe = async (req, res) => {
   ApiResponse.ok(res, "User profile", user);
 };
 
+const uploadAvatar = async (req, res) => {
+  try{
+    const file = req.file;
+    if(!file){
+      return ApiResponse.badRequest(res, "No file uploaded");
+    }
+    const result=await authService.avatarUpload(req.user.id,file);
+
+    return ApiResponse.ok(res, "Avatar uploaded successfully", {avatarUrl:result.url});
+  }
+  catch(error){
+    console.error("Upload error:", error);
+    return ApiResponse.internalError(res, "Failed to upload avatar");
+  }
+}
+
 export {
   register,
   login,
@@ -65,4 +82,5 @@ export {
   forgotPassword,
   resetPassword,
   getMe,
+  uploadAvatar
 };

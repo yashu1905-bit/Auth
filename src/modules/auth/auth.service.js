@@ -1,17 +1,23 @@
 import crypto from "crypto";
 import User from "./auth.model.js";
 import ApiError from "../../common/utils/api-error.js";
+
+import fs from "fs";
+import fsPromises from "fs/promises";
+
+import ImageKit from "imagekit";
+
 import {
   generateAccessToken,
   generateRefreshToken,
   verifyRefreshToken,
   generateResetToken,
 } from "../../common/utils/jwt.utils.js";
+
 import {
   sendVerificationEmail,
   sendResetPasswordEmail,
 } from "../../common/config/email.js";
-
 // Hash refresh token before storing — same approach as reset tokens
 const hashToken = (token) =>
   crypto.createHash("sha256").update(token).digest("hex");
@@ -51,9 +57,9 @@ const login = async ({ email, password }) => {
   const isMatch = await user.comparePassword(password);
   if (!isMatch) throw ApiError.unauthorized("Invalid email or password");
 
-  if (!user.isVerified) {
-    throw ApiError.forbidden("Please verify your email before logging in");
-  }
+  // if (!user.isVerified) {
+  //   throw ApiError.forbidden("Please verify your email before logging in");
+  // }
 
   const accessToken = generateAccessToken({ id: user._id, role: user.role });
   const refreshToken = generateRefreshToken({ id: user._id });
@@ -160,6 +166,57 @@ const getMe = async (userId) => {
   return user;
 };
 
+const imagekit = new ImageKit({
+  publicKey: process.env.IMAGEKIT_PUBLIC_KEY,
+  privateKey: process.env.IMAGEKIT_PRIVATE_KEY,
+  urlEndpoint: process.env.IMAGEKIT_URL_ENDPOINT,
+});
+
+const avatarUpload = async (userId, file) => {
+  try {
+    if (!file) {
+      throw ApiError.badRequest("No file uploaded");
+    }
+
+    // Read file as buffer instead of stream
+    const fileBuffer = await fsPromises.readFile(file.path);
+
+    const uploadResponse = await imagekit.upload({
+      file: fileBuffer,
+      fileName: file.filename,
+      folder: "/user-avatars",
+    });
+
+    await User.findByIdAndUpdate(
+      userId,
+      { avatar: uploadResponse.url },
+      { new: true }
+    );
+
+    // delete local file
+    if (file.path && fs.existsSync(file.path)) {
+      await fsPromises.unlink(file.path);
+    }
+
+    return {
+      url: uploadResponse.url,
+      fileId: uploadResponse.fileId,
+    };
+
+  } catch (error) {
+    try {
+      if (file?.path && fs.existsSync(file.path)) {
+        await fsPromises.unlink(file.path);
+      }
+    } catch (cleanupError) {
+      console.error("Cleanup error:", cleanupError);
+    }
+
+    console.error("Real Upload Error:", error);
+    throw ApiError.badRequest("Avatar upload failed");
+  }
+};
+
 export {
   register,
   login,
@@ -169,4 +226,5 @@ export {
   forgotPassword,
   resetPassword,
   getMe,
+  avatarUpload
 };
